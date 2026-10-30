@@ -1,0 +1,95 @@
+{
+  "name": "@arki/failure",
+  "version": "0.3.0",
+  "description": "Typed failures for TypeScript without a wrapper: define a failure once, return it as a value, and the compiler makes every caller handle it. Early return, partial handling, cause chains, revival after JSON, a must-use lint rule and oRPC error maps.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arki-labs/arki.git"
+  },
+  "homepage": "https://arki.dev",
+  "bugs": {
+    "url": "https://github.com/arki-labs/arki/issues"
+  },
+  "keywords": [
+    "arki",
+    "typescript",
+    "failure",
+    "errors-as-values",
+    "typed-errors",
+    "result",
+    "match",
+    "eslint",
+    "standard-schema",
+    "orpc"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./eslint": {
+      "types": "./dist/eslint.d.ts",
+      "import": "./dist/eslint.js",
+      "default": "./dist/eslint.js"
+    },
+    "./orpc": {
+      "types": "./dist/orpc.d.ts",
+      "import": "./dist/orpc.js",
+      "default": "./dist/orpc.js"
+    },
+    "./package.json": "./package.json",
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "src/**",
+    "!src/**/*.test.*",
+    "!src/**/*.spec.*",
+    "!src/**/__tests__/**",
+    "!src/**/__fixtures__/**",
+    "docs/**",
+    "!docs/examples/*.test.ts",
+    "!docs/examples/tsconfig.json",
+    "examples/*.ts",
+    "!examples/*.test.ts",
+    "llms.txt",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@orpc/client": "^1.15.5",
+    "@typescript-eslint/utils": "^8.0.0",
+    "eslint": ">=9.0.0",
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@orpc/client": {
+      "optional": true
+    },
+    "@typescript-eslint/utils": {
+      "optional": true
+    },
+    "eslint": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

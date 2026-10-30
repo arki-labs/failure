@@ -1,0 +1,171 @@
+/**
+ * Typed failures as values.
+ *
+ * A failure is something the caller should handle: "post not found", "email
+ * taken", "card declined". `defineFailure` names one kind of failure once;
+ * calling the definition makes a failure value; a function returns it like
+ * any other value. The return type is inferred as `Post | Failure<'post.not_found', …>`,
+ * so the compiler makes every caller check before using the post.
+ *
+ * Owned operation boundaries can return typed defects. Invalid static declarations
+ * still throw so a definition is always a definition.
+ */
+import type { StandardSchemaV1 } from '@standard-schema/spec';
+/**
+ * The brand every failure carries. A string key, like Standard Schema's
+ * `~standard`: it survives duplicated package copies and realms, sorts last in
+ * autocomplete, and lets the `must-use` lint rule see failures in a type.
+ * At runtime it is non-enumerable, so JSON and spreads never show it.
+ */
+declare const BRAND = "~failure";
+/** A typed failure, returned as a value. Made by calling a {@link FailureDefinition}. */
+export type Failure<Code extends string = string, Data = unknown> = {
+    /** Stable, unique code, such as `post.not_found`. Match on it, never on the message. */
+    readonly code: Code;
+    /** What went wrong, for people. */
+    readonly message: string;
+    /** The facts the caller needs to handle it, such as the id that was not found. */
+    readonly data: Data;
+    /** The HTTP status a boundary answers with: 400–599. */
+    readonly status: number;
+    /** What the caller can do about it, in one sentence. */
+    readonly remediation: string | undefined;
+    /** What caused it: a lower-level failure or a caught error. Walk the chain with `findCause`. */
+    readonly cause?: unknown;
+    readonly [BRAND]: true;
+};
+/**
+ * The data a definition's failures carry: the schema's output type, the live
+ * value the failure carries; `undefined` without a schema.
+ */
+export type DataOf<Schema> = Schema extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<Schema> : undefined;
+/**
+ * A data schema as a definition's public type names it: its input and output, not the library that
+ * built it. Otherwise every exported failure prints `z.ZodObject<…>` into its package's `.d.ts`, and
+ * each consumer's types depend on that schema library.
+ */
+export type PortableSchema<Schema> = Schema extends StandardSchemaV1 ? StandardSchemaV1<StandardSchemaV1.InferInput<Schema>, StandardSchemaV1.InferOutput<Schema>> : undefined;
+/** What making one failure may take besides its data. */
+export type MakeOptions = {
+    /** What caused this failure: a lower-level failure or a caught error. */
+    readonly cause?: unknown;
+};
+/** The arguments a definition takes: the data when it has a schema, then optional `{ cause }`. */
+type MakeArgs<Schema> = Schema extends StandardSchemaV1 ? undefined extends DataOf<Schema> ? [data?: DataOf<Schema>, options?: MakeOptions] : [data: DataOf<Schema>, options?: MakeOptions] : [options?: MakeOptions];
+/** One kind of failure. Call it to make a failure value. */
+export type FailureDefinition<Code extends string = string, Schema extends StandardSchemaV1 | undefined = StandardSchemaV1 | undefined> = {
+    /** Make a failure of this kind. */
+    (...args: MakeArgs<Schema>): Failure<Code, DataOf<Schema>>;
+    readonly code: Code;
+    readonly status: number;
+    readonly remediation: string | undefined;
+    /** The schema of the data, for boundaries that send failures over the wire (oRPC error maps, `revive`). */
+    readonly dataSchema: Schema;
+    /** True when `value` is a failure with this definition's code. */
+    is(value: unknown): value is Failure<Code, DataOf<Schema>>;
+};
+/** The `{name}` placeholders of a message template. */
+type Placeholders<Message extends string> = Message extends `${string}{${infer Key}}${infer Rest}` ? Key | Placeholders<Rest> : never;
+/** The message, or a readable type error naming the placeholder that is not a key of the data. */
+type CheckedMessage<Message extends string, Data> = [Exclude<Placeholders<Message>, keyof Data & string>] extends [
+    never
+] ? Message : `unknown placeholder {${Exclude<Placeholders<Message>, keyof Data & string>}}: not a key of the data`;
+/** What `defineFailure` takes besides the code. */
+export type FailureOptions<Schema extends StandardSchemaV1 | undefined, Message extends string = string> = {
+    /** Schema of the data the failure carries: any Standard Schema (Zod 4, Valibot, ArkType). */
+    readonly data?: Schema;
+    /**
+     * What the failure says. A template such as `'no post {id}'` fills each
+     * `{key}` from the data, and a placeholder that is not a key of the data is
+     * a type error. A function builds the message from the data. Defaults to the code.
+     */
+    readonly message?: CheckedMessage<Message, DataOf<Schema>> | ((data: DataOf<Schema>) => string);
+    /** HTTP status at a boundary, 400–599. Defaults to 400: an expected failure is the caller's to handle, not a server bug. */
+    readonly status?: number;
+    /** What the caller can do about it, in one sentence. */
+    readonly remediation?: string;
+};
+/**
+ * Name one kind of expected failure. The code, the data type and the message
+ * are written here once; every failure value, `match` handler, oRPC error map
+ * and `revive` takes its types from this definition.
+ *
+ * @example
+ * export const PostNotFound = defineFailure('post.not_found', {
+ *   status: 404,
+ *   data: z.object({ id: PostId }),
+ *   message: 'no post {id}',
+ * });
+ *
+ * const find = async (id: PostId) => (await repo.find(id)) ?? PostNotFound({ id });
+ * //    ^? (id: PostId) => Promise<Post | Failure<'post.not_found', { id: PostId }>>
+ */
+export declare function defineFailure<const Code extends string, Schema extends StandardSchemaV1 | undefined = undefined, const Message extends string = string>(code: Code, options?: FailureOptions<Schema, Message>): FailureDefinition<Code, PortableSchema<Schema>>;
+/** Refuses a promise: `isFailure(find(id))` is always false, so it must be awaited first. */
+export type AwaitFirst<Value> = [Value] extends [PromiseLike<unknown>] ? [error: 'await the value first: a promise is never a failure'] : [];
+/** The failures in `Value`, or any failure when `Value` is `unknown`. */
+export type FailureIn<Value> = unknown extends Value ? Value & Failure : Extract<Value, Failure>;
+/**
+ * True when `value` is a failure made by any {@link FailureDefinition}.
+ * Narrows `T | Failure` both ways. Passing a promise is a type error: await it first.
+ */
+export declare function isFailure<Value>(value: Value, ...awaitFirst: AwaitFirst<Value>): value is FailureIn<Value>;
+/** A value that may be a failure: the success value, or one of the failures it can return. */
+export type Result<Value, Failures extends Failure = never> = Value | Failures;
+/**
+ * A partial success: the value, plus the failure that stopped the work early when one did.
+ * Callers read `result.stoppedBy` directly, with no `'stoppedBy' in result` check.
+ *
+ * @example
+ * async function exportAll(items: Item[]): Promise<Stoppable<{ delivered: Item[] }, FailureOf<typeof send>>> {
+ *   const delivered: Item[] = [];
+ *   for (const item of items) {
+ *     const sent = await send(item);
+ *     if (isFailure(sent)) return { delivered, stoppedBy: sent };
+ *     delivered.push(item);
+ *   }
+ *   return { delivered };
+ * }
+ */
+export type Stoppable<Value, Failures extends Failure> = Value & {
+    readonly stoppedBy?: Failures;
+};
+/**
+ * Builds a {@link Stoppable}, so a partial-success function's return type is inferred and needs
+ * no annotation: return `stoppable(value)` when the work finished, and
+ * `stoppable(value, failure)` when a failure stopped it. Returns a shallow copy of `value`; the
+ * `stoppedBy` key is present only when a failure is given, so a finished result has no such key.
+ *
+ * @example
+ * async function exportAll(items: Item[]) {
+ *   const delivered: Item[] = [];
+ *   for (const item of items) {
+ *     const sent = await send(item);
+ *     if (isFailure(sent)) return stoppable({ delivered }, sent);
+ *     delivered.push(item);
+ *   }
+ *   return stoppable({ delivered });
+ * } // Promise<Stoppable<{ delivered: Item[] }, FailureOf<typeof send>>>
+ */
+export declare function stoppable<Value extends object, Failures extends Failure = never>(value: Value, stoppedBy?: Failures): Stoppable<Value, Failures>;
+/** The failures a function can return, for sync and async functions: `FailureOf<typeof findPost>`. */
+export type FailureOf<Fn extends (...args: never[]) => unknown> = Extract<Awaited<ReturnType<Fn>>, Failure>;
+/** The success value a function returns, without its failures: `SuccessOf<typeof findPost>`. */
+export type SuccessOf<Fn extends (...args: never[]) => unknown> = Exclude<Awaited<ReturnType<Fn>>, Failure>;
+/** A failure thrown because the code decided it cannot happen: what {@link orThrow} throws. */
+export declare class UnexpectedFailure<F extends Failure = Failure> extends Error {
+    readonly failure: F;
+    readonly code: F['code'];
+    readonly status: number;
+    readonly remediation: string | undefined;
+    constructor(failure: F);
+}
+/**
+ * The value, or throw the failure as an {@link UnexpectedFailure}. For places
+ * where a failure is a bug: a seed script, a test, an id you just created.
+ * Takes a promise too, so `orThrow(find(id))` cannot forget the `await`.
+ */
+export declare function orThrow<Value>(value: PromiseLike<Value>): Promise<Exclude<Value, Failure>>;
+export declare function orThrow<Value>(value: Value): Exclude<Value, Failure>;
+export {};
+//# sourceMappingURL=failure.d.ts.map

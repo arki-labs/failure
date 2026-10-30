@@ -1,0 +1,221 @@
+/**
+ * `@arki/failure/orpc` — failures at an oRPC boundary.
+ *
+ * Define each failure once with `defineFailure`. The contract lists them with
+ * `errorMap(...)`, so the client gets typed errors. The procedure hands the
+ * usecase's result to `orThrowRpc(...)`, which returns the value or throws the
+ * matching `ORPCError`. It also takes the handler's `errors`, so a failure the
+ * usecase can return but the contract does not list is a compile error. On the
+ * client, `reviveRpcError(...)` turns the caught `ORPCError` back into the failure.
+ *
+ * @example
+ * // model/errors.ts
+ * export const PostNotFound = defineFailure('post.not_found', { status: 404, data: z.object({ id: PostId }) });
+ * // entrypoints/rpc.ts
+ * byId: oc.errors(errorMap(PostNotFound)).input(z.object({ id: PostId })).output(PostSchema),
+ * // entrypoints/procedures.ts
+ * byId: impl => impl.byId.handler(({ context, input, errors }) => orThrowRpc(context.usecases.find(input.id), errors)),
+ * // the frontend: the caught ORPCError back as the failure, ready for match()
+ * const failure = reviveRpcError(error, [PostNotFound]);
+ */
+import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { ORPCError } from '@orpc/client';
+
+import type { Failure } from './failure.js';
+import { FAILURE_ERROR_CODES, FailureError } from './errors.js';
+import { isFailure, isThenable } from './failure.js';
+import { revive, wireSchema } from './revive.js';
+
+/** The parts of a `FailureDefinition` an error map needs. */
+type DefinitionShape = {
+  readonly code: string;
+  readonly status: number;
+  readonly dataSchema: StandardSchemaV1 | undefined;
+};
+
+/** Canonical definition retained across contract adapters; symbols never enter JSON error envelopes. */
+export const RPC_FAILURE_DEFINITION = Symbol.for('@arki/failure/orpc/definition');
+
+/** The oRPC error map for a list of definitions: one entry per code, with its status and data schema. */
+export type ErrorMapOf<Definitions extends readonly DefinitionShape[]> = {
+  readonly [Definition in Definitions[number] as Definition['code']]: Definition['dataSchema'] extends StandardSchemaV1
+    ? {
+        readonly status: number;
+        readonly [RPC_FAILURE_DEFINITION]: Definition;
+        readonly data: StandardSchemaV1<
+          StandardSchemaV1.InferOutput<Definition['dataSchema']>,
+          StandardSchemaV1.InferOutput<Definition['dataSchema']>
+        >;
+      }
+    : { readonly status: number; readonly [RPC_FAILURE_DEFINITION]: Definition };
+};
+
+/**
+ * The oRPC error map for these definitions, for a contract's `.errors(...)`.
+ * Two definitions with the same code throw `ARKI_FAILURE_E005`.
+ */
+export function errorMap<const Definitions extends readonly DefinitionShape[]>(
+  ...definitions: Definitions
+): ErrorMapOf<Definitions>;
+export function errorMap(...definitions: readonly DefinitionShape[]): unknown {
+  const seen = new Set<string>();
+  const entries: [string, { status: number; data?: StandardSchemaV1; [RPC_FAILURE_DEFINITION]: DefinitionShape }][] =
+    [];
+  for (const definition of definitions) {
+    const { code, status, dataSchema } = definition;
+    if (seen.has(code)) {
+      throw new FailureError(
+        FAILURE_ERROR_CODES.duplicateCode,
+        `errorMap() got two definitions with the code "${code}"`,
+        'Give each defineFailure() a unique code, or pass the shared definition once.',
+      );
+    }
+    seen.add(code);
+    entries.push([
+      code,
+      {
+        status,
+        ...(dataSchema === undefined ? {} : { data: wireSchema(dataSchema) }),
+        [RPC_FAILURE_DEFINITION]: definition,
+      },
+    ]);
+  }
+  return Object.fromEntries(entries);
+}
+
+/** One oRPC error constructor, as the handler's `errors` object holds them. */
+type ErrorConstructor<Data> = (options: {
+  readonly message: string;
+  readonly data: Data;
+  readonly cause?: unknown;
+}) => Error;
+
+/**
+ * The handler's `errors` must hold a constructor for every failure code the
+ * value can carry. A code the contract does not list is a missing property.
+ */
+export type DeclaredErrors<Value> = {
+  readonly [Code in Extract<Value, Failure>['code']]: ErrorConstructor<Extract<Value, Failure<Code>>['data']>;
+};
+
+/** The loose shape the implementation reads; the overloads above keep it typed. */
+type LooseErrors = Readonly<Partial<Record<string, ErrorConstructor<unknown>>>>;
+
+/**
+ * The value, or throw its failure through the handler's `errors`, the typed
+ * `ORPCError` the contract declares (same code, status, message and data).
+ * Pass the handler's `errors`: a failure the contract does not list is a
+ * compile error. Takes a promise too, so a handler can return
+ * `orThrowRpc(usecase(input), errors)` directly.
+ *
+ * With a third argument it answers `success` instead of the value, for a
+ * usecase that returns nothing or a failure:
+ * `return orThrowRpc(await disconnect(id), errors, { success: true })`.
+ */
+export function orThrowRpc<Value>(
+  value: PromiseLike<Value>,
+  errors: NoInfer<DeclaredErrors<Value>>,
+): Promise<Exclude<Value, Failure>>;
+export function orThrowRpc<Value>(
+  value: Value,
+  errors: NoInfer<DeclaredErrors<Awaited<Value>>>,
+): Exclude<Value, Failure>;
+export function orThrowRpc<Value, Success>(
+  value: PromiseLike<Value>,
+  errors: NoInfer<DeclaredErrors<Value>>,
+  success: Success,
+): Promise<Success>;
+export function orThrowRpc<Value, Success>(
+  value: Value,
+  errors: NoInfer<DeclaredErrors<Awaited<Value>>>,
+  success: Success,
+): Success;
+export function orThrowRpc(value: unknown, errors: LooseErrors, ...success: readonly [] | readonly [unknown]): unknown {
+  if (isThenable(value)) return Promise.resolve(value).then(resolved => orThrowRpcNow(resolved, errors, success));
+  return orThrowRpcNow(value, errors, success);
+}
+
+/** Throw the failure, or answer `success` when one was passed, else the value. */
+function orThrowRpcNow(value: unknown, errors: LooseErrors, success: readonly [] | readonly [unknown]): unknown {
+  if (!isFailure(value)) return success.length === 0 ? value : success[0];
+  throw declaredError(value, errors);
+}
+
+/**
+ * The typed `ORPCError` the contract declares for a failure you already hold
+ * (same code, status, message and data), to throw: `throw rpcError(failure, errors)`.
+ * Pass the handler's `errors`: a failure the contract does not list is a
+ * compile error. For a value that may or may not be a failure, use {@link orThrowRpc}.
+ */
+export function rpcError<F extends Failure>(failure: F, errors: NoInfer<DeclaredErrors<F>>): Error;
+export function rpcError(failure: Failure, errors: LooseErrors): Error {
+  return declaredError(failure, errors);
+}
+
+function declaredError(failure: Failure, errors: LooseErrors): Error {
+  const declared = errors[failure.code];
+  // `cause` keeps the failure itself on the server (observers read it); oRPC never sends `cause` to the client.
+  // Reached only when the types were bypassed: the client sees an undeclared error (`defined: false`).
+  if (declared === undefined) {
+    return new ORPCError(failure.code, {
+      status: failure.status,
+      message: failure.message,
+      data: failure.data,
+      cause: failure,
+    });
+  }
+  return declared({ message: failure.message, data: failure.data, cause: failure });
+}
+
+/** The parts of a definition {@link reviveRpcError} needs: the same as `revive`. */
+type RevivableDefinition = {
+  readonly code: string;
+  readonly dataSchema: StandardSchemaV1 | undefined;
+  (...args: never[]): Failure;
+};
+
+type RpcFailureSource = {
+  readonly status?: number;
+  readonly data?: StandardSchemaV1;
+  readonly message?: string;
+  readonly [RPC_FAILURE_DEFINITION]?: RevivableDefinition;
+};
+
+type RetainedDefinition<Entry> = Entry extends unknown
+  ? typeof RPC_FAILURE_DEFINITION extends keyof Entry
+    ? Extract<Entry[typeof RPC_FAILURE_DEFINITION], RevivableDefinition>
+    : never
+  : never;
+
+/** Read the original definitions from a native contract without rebuilding failure types or schemas. */
+export function rpcFailureDefinitions<const Map extends Readonly<Record<string, RpcFailureSource>>>(
+  map: Map,
+): RetainedDefinition<Map[keyof Map]>[];
+export function rpcFailureDefinitions(map: Readonly<Record<string, RpcFailureSource>>) {
+  return Object.values(map).flatMap(entry => {
+    const definition = entry[RPC_FAILURE_DEFINITION];
+    return definition === undefined ? [] : [definition];
+  });
+}
+
+/**
+ * The live failure a caught `ORPCError` stands for, when its code is one of
+ * `definitions`; `undefined` for any other error. Data is checked with the
+ * definition's schema like `revive`, returning a typed protocol failure when it is malformed. Use it on the client to `match` on failures the
+ * contract declares.
+ *
+ * @example
+ * const post = await client.posts.byId({ id }).catch((error: unknown) => {
+ *   const failure = reviveRpcError(error, [PostNotFound]);
+ *   if (failure === undefined) throw error; // not a declared failure: still a bug
+ *   return failure;
+ * });
+ * //    ^? Post | Failure<'post.not_found', { id: string }>
+ */
+export function reviveRpcError<const Definitions extends readonly RevivableDefinition[]>(
+  error: unknown,
+  definitions: Definitions,
+) {
+  if (!(error instanceof ORPCError)) return;
+  return revive(error, definitions);
+}
