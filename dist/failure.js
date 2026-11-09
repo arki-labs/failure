@@ -92,6 +92,27 @@ export function isFailure(value) {
     }
 }
 /**
+ * True when a returned failure is a fault an operator must act on: its `status` is 500 or
+ * higher (a provider is down, a setting is wrong, a bug such as `UnexpectedDefect`).
+ * False for an expected outcome the caller handles: a 4xx such as a declined card, a missing
+ * record or invalid input.
+ *
+ * Every failure has a status, because `defineFailure` defaults it to 400. A definition with no
+ * `status` option is therefore an expected outcome, and `isFault` answers false for it. Say
+ * `status: 500` (or another 5xx) to mark a fault.
+ *
+ * @example
+ * // A telemetry helper: always record the code, mark the span as an error only for faults.
+ * function recordResult(span: Span, result: unknown) {
+ *   if (!isFailure(result)) return;
+ *   span.setAttribute('failure.code', result.code);
+ *   if (isFault(result)) span.setStatus({ code: SpanStatusCode.ERROR });
+ * }
+ */
+export function isFault(failure) {
+    return failure.status >= 500;
+}
+/**
  * Builds a {@link Stoppable}, so a partial-success function's return type is inferred and needs
  * no annotation: return `stoppable(value)` when the work finished, and
  * `stoppable(value, failure)` when a failure stopped it. Returns a shallow copy of `value`; the

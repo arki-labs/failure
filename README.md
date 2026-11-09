@@ -1,4 +1,4 @@
-Read-only mirror of `@arki/failure` v0.3.0. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/failure. Published 2026-10-30 with provenance https://www.npmjs.com/package/@arki/failure/v/0.3.0#provenance.
+Read-only mirror of `@arki/failure` v0.4.0. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/failure. Published 2026-11-09 with provenance https://www.npmjs.com/package/@arki/failure/v/0.4.0#provenance.
 
 # @arki/failure
 
@@ -60,9 +60,21 @@ App-shaped blocks import their names from [the docs fixture](docs/examples/fixtu
 
 Node, Bun, Deno, browsers and React Native (Hermes). The core uses no runtime built-ins. The `/eslint` entry runs in Node and Bun only, where ESLint runs.
 
+<!-- runtimes:start -->
+
+| Runtime | Result | Version tested        | Date (UTC) |
+| ------- | ------ | --------------------- | ---------- |
+| node    | pass   | v22.13.1              | 2026-11-05 |
+| bun     | pass   | 1.4.2                 | 2026-11-05 |
+| deno    | pass   | 2.9.8                 | 2026-11-05 |
+| browser | pass   | Chromium 156.0.8078.4 | 2026-11-05 |
+| hermes  | pass   | V1 250829098.0.17     | 2026-11-05 |
+
+<!-- runtimes:end -->
+
 ## Public imports
 
-- `@arki/failure`: `defineFailure`, `isFailure`, `match`, `recover`, `orThrow`, `attempt`, `revive`, `findCause`, `partition`, `collect`, `stoppable`, `unreachable`, `invariant`, `FailureError` and the types.
+- `@arki/failure`: `defineFailure`, `isFailure`, `isFault`, `match`, `recover`, `orThrow`, `attempt`, `revive`, `findCause`, `partition`, `collect`, `stoppable`, `unreachable`, `invariant`, `FailureError` and the types.
 - `@arki/failure/orpc`: `errorMap`, `orThrowRpc`, `reviveRpcError`, `rpcFailureDefinitions`, `RPC_FAILURE_DEFINITION`.
 - `@arki/failure/eslint`: the `must-use` and `no-blind-accept` rules, and `configs.recommended`.
 
@@ -132,6 +144,10 @@ export const NotionUnavailable = defineFailure('export.notion_unavailable', {
 Detection refuses opaque or revoked objects without throwing. `Def.is(value)` also refuses an inaccessible code. An object that cannot prove the canonical failure brand stays an ordinary value; decoding wire failures still requires `revive`.
 
 True for any failure value. Narrows `T | Failure` both ways. Passing a promise is a type error, because a forgotten `await` would always answer "not a failure".
+
+### `isFault(failure)`
+
+True when a returned failure is a fault an operator must act on: its `status` is 500 or higher (a provider is down, a setting is wrong, a bug such as `UnexpectedDefect`). False for an expected outcome the caller handles (4xx: a declined card, a missing record, invalid input). A definition with no `status` defaults to 400, so it is not a fault. Telemetry helpers always set `failure.code` and mark a span as an error only when `isFault(failure)`.
 
 ### Early return
 
@@ -464,6 +480,10 @@ A `FailureError` has a stable `code` and a one-sentence `remediation`. Each code
 | `ARKI_FAILURE_E006` | Retired: revival now returns `InvalidEnvelope` with reason `invalid_data`. |
 | `ARKI_FAILURE_E007` | Retired: revival now returns `AsyncSchema`.                                |
 | `ARKI_FAILURE_E008` | An `invariant` condition was falsy.                                        |
+
+## Observability
+
+Pure computation: no I/O, so no spans or metrics.
 
 ## Limits
 

@@ -1,6 +1,6 @@
 {
   "package": "@arki/failure",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "entries": [
     {
       "subpath": ".",
@@ -148,6 +148,13 @@
       "kind": "function",
       "signature": "export declare function isFailure<Value>(value: Value, ...awaitFirst: AwaitFirst<Value>): value is FailureIn<Value>;",
       "jsdocSummary": "True when `value` is a failure made by any {@link FailureDefinition}. Narrows `T | Failure` both ways. Passing a promise is a type error: await it first."
+    },
+    {
+      "subpath": ".",
+      "name": "isFault",
+      "kind": "function",
+      "signature": "export declare function isFault(failure: Failure): boolean;",
+      "jsdocSummary": "True when a returned failure is a fault an operator must act on: its `status` is 500 or higher (a provider is down, a setting is wrong, a bug such as `UnexpectedDefect`). False for an expected outcome the caller handles: a 4xx such as a declined card, a missing record or invalid input."
     },
     {
       "subpath": ".",

@@ -4,7 +4,7 @@ export { findCause } from './cause.js';
 export { collect, partition } from './collect.js';
 export { FAILURE_ERROR_CODES, FailureError } from './errors.js';
 export type { FailureErrorCode } from './errors.js';
-export { defineFailure, isFailure, orThrow, stoppable, UnexpectedFailure } from './failure.js';
+export { defineFailure, isFailure, isFault, orThrow, stoppable, UnexpectedFailure } from './failure.js';
 export type { AwaitFirst, DataOf, Failure, FailureDefinition, FailureIn, FailureOf, FailureOptions, MakeOptions, Result, Stoppable, SuccessOf, } from './failure.js';
 export { invariant, match, recover, unreachable } from './handle.js';
 export type { MatchHandlers, RecoverHandlers } from './handle.js';
