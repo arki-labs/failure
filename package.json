@@ -1,6 +1,6 @@
 {
   "name": "@arki/failure",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Typed failures for TypeScript without a wrapper: define a failure once, return it as a value, and the compiler makes every caller handle it. Early return, partial handling, cause chains, revival after JSON, a must-use lint rule and oRPC error maps.",
   "license": "MIT",
   "repository": {
@@ -53,6 +53,7 @@
     "src/**",
     "!src/**/*.test.*",
     "!src/**/*.spec.*",
+    "!src/**/*.test-d.ts",
     "!src/**/__tests__/**",
     "!src/**/__fixtures__/**",
     "docs/**",
@@ -70,7 +71,7 @@
     "@standard-schema/spec": "^1.1.0"
   },
   "peerDependencies": {
-    "@orpc/client": "^1.15.5",
+    "@orpc/client": "^1.16.5",
     "@typescript-eslint/utils": "^8.0.0",
     "eslint": ">=9.0.0",
     "typescript": ">=5.0.0"

@@ -1,4 +1,4 @@
-Read-only mirror of `@arki/failure` v0.4.0. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/failure. Published 2026-11-09 with provenance https://www.npmjs.com/package/@arki/failure/v/0.4.0#provenance.
+Read-only mirror of `@arki/failure` v0.4.2. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/failure. Published 2026-11-26 with provenance https://www.npmjs.com/package/@arki/failure/v/0.4.2#provenance.
 
 # @arki/failure
 
